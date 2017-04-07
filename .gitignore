@@ -1,4 +1,4 @@
 packages
-CSharpFormatter/bin
+RoslynDiffFormatter/bin
 .vs
-CSharpFormatter/obj
+RoslynDiffFormatter/obj

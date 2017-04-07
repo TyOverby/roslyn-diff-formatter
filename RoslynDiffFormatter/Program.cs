@@ -78,7 +78,7 @@ namespace CSharpFormatter
 
                 progress.Tick($"formatting {kvp.Key}");
                 var document = solution.GetDocument(kvp.Value.id);
-                document = await ApplyChangesToDocumentAsync(document, kvp.Value.requests, progress);
+                document = await ApplyChangesToDocumentAsync(document, kvp.Value.requests);
                 solution = document.Project.Solution;
             }
 
@@ -103,7 +103,7 @@ namespace CSharpFormatter
             return linesUnion;
         }
 
-        static async Task<Document> ApplyChangesToDocumentAsync(Document document, IEnumerable<DiffRequest> requests, ProgressBar progress)
+        static async Task<Document> ApplyChangesToDocumentAsync(Document document, IEnumerable<DiffRequest> requests)
         {
             Console.WriteLine($"INFO: Applying changes to: {document.FilePath}");
 
