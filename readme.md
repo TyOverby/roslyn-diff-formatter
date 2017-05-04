@@ -11,3 +11,7 @@ For just your working changes
 For all changes (against another branch)
 
 `git diff master | RoslynDiffFormatter.exe mysolution.sln`
+
+To format all files in a solution, specify the `-a` flag
+
+`RoslynDiffFormatter.exe mysolution.sln -a`
