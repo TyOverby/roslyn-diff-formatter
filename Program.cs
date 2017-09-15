@@ -170,7 +170,7 @@ namespace CSharpFormatter
             while (lines.MoveNext())
             {
                 var controlLine = lines.Current;
-                Parse:
+            Parse:
 
                 if (controlLine.StartsWith("+++"))
                 {
@@ -283,3 +283,4 @@ namespace CSharpFormatter
         }
     }
 }
+
