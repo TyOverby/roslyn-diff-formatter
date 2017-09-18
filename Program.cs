@@ -219,7 +219,7 @@ namespace CSharpFormatter
             return list;
         }
 
-        static async Task<int> AsyncMain(string[] args)
+        static async Task<int> Main(string[] args)
         {
             if (args.Length < 1)
             {
@@ -268,11 +268,6 @@ namespace CSharpFormatter
             {
                 return await ApplyChanges(workspace, solution, documentMap, progress);
             }
-        }
-
-        static int Main(string[] args)
-        {
-            return AsyncMain(args).GetAwaiter().GetResult();
         }
 
         static void PrintHelp()
