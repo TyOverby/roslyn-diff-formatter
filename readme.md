@@ -1,6 +1,14 @@
 # Roslyn Diff Formatter
 
-This is a code formatting tool that uses the Roslyn API to format only the source code that you've modified in version control
+This is a code formatting tool that uses the Roslyn API to format only the source code that
+you've modified in version control
+
+## Building
+
+```
+dotnet restore
+dotnet build
+```
 
 ## Usage
 
