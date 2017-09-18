@@ -1,4 +1,3 @@
-packages
-RoslynDiffFormatter/bin
-.vs
-RoslynDiffFormatter/obj
+bin
+obj
+.vscode
