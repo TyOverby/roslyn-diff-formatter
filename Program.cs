@@ -1,19 +1,17 @@
-﻿using System;
+using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.CodeAnalysis;
 using static Microsoft.CodeAnalysis.Formatting.Formatter;
 using Microsoft.CodeAnalysis.Text;
 using System.Diagnostics;
-using ShellProgressBar;
 
 namespace CSharpFormatter
 {
-
-    using DocumentMap = Dictionary<string, (DocumentId id, List<DiffRequest> requests)>;
+    using DocumentMap = Dictionary<string, List<DiffRequest>>;
 
     struct DiffRequest
     {
@@ -29,12 +27,11 @@ namespace CSharpFormatter
         }
     }
 
-
     class Program
     {
         // Builds a mapping of FileName -> (DocumentId, Requests[])
         // This grouping is later used to process each document at a time.
-        static DocumentMap BuildDiffDocumentMap(Workspace workspace, Solution solution, IEnumerable<DiffRequest> requests)
+        static DocumentMap BuildDiffDocumentMap(IEnumerable<DiffRequest> requests)
         {
             var documentIdMap = new DocumentMap();
             foreach (var request in requests)
@@ -47,73 +44,37 @@ namespace CSharpFormatter
 
                 if (documentIdMap.ContainsKey(request.filename))
                 {
-                    documentIdMap[request.filename].requests.Add(request);
+                    documentIdMap[request.filename].Add(request);
                 }
                 else
                 {
-                    // Diff always uses unix separators, so we need to replace those with the system separator
-                    var correctedFilename = request.filename.Replace('/', System.IO.Path.DirectorySeparatorChar);
-                    var fullPath = System.IO.Path.Combine(Environment.CurrentDirectory, correctedFilename);
-                    var documentIds = solution.GetDocumentIdsWithFilePath(fullPath);
-
-                    if (!documentIds.IsDefaultOrEmpty)
-                    {
-                        documentIdMap.Add(request.filename, (documentIds.First(), new List<DiffRequest>() { request }));
-                    }
-                    else
-                    {
-                        Console.WriteLine($"WARNING: Could not find a document ID for {fullPath}");
-                    }
+                    documentIdMap.Add(request.filename, new List<DiffRequest>() { request });
                 }
 
             }
             return documentIdMap;
         }
 
-        static async Task<DocumentMap> BuildAllFilesDocumentMap(Solution solution)
-        {
-            // Get all documents. We don't want to format any generated resx files.
-            var documents = solution.Projects
-                .Where(p => p.HasDocuments)
-                .SelectMany(p => p.Documents)
-                .Where(d => d.Name.EndsWith("cs") || d.Name.EndsWith("vb"))
-                .Where(d => !d.Name.EndsWith("Designer.cs") || !d.Name.EndsWith("Designer.vb"));
-
-            var requests = new DocumentMap();
-
-            foreach (var doc in documents)
-            {
-                var text = await doc.GetTextAsync();
-                requests[doc.FilePath] = (doc.Id, new List<DiffRequest>() { new DiffRequest(doc.FilePath, 0, text.Lines.Count) });
-            }
-
-            return requests;
-        }
-
-        static async Task<int> ApplyChanges(MSBuildWorkspace workspace, Solution solution, DocumentMap documentMap, ProgressBar progress)
+        static void ApplyChanges(DocumentMap documentMap)
         {
             foreach (var kvp in documentMap)
             {
-
-                progress.Tick($"formatting {kvp.Key}");
-                var document = solution.GetDocument(kvp.Value.id);
-                document = await ApplyChangesToDocumentAsync(document, kvp.Value.requests);
-                solution = document.Project.Solution;
+                string documentName = kvp.Key;
+                var diffRequests = kvp.Value;
+                try
+                {
+                    ApplyChangesToDocument(documentName, kvp.Value);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"EXCEPTION formatting {documentName}: {e.Message}");
+                }
             }
-
-            if (!workspace.TryApplyChanges(solution))
-            {
-                Console.WriteLine("ERROR: Failed while saving files to disk.");
-                return 2;
-            }
-
-            return 0;
         }
 
         // Returns the TextSpan for a set of contiguous lines in a document.
-        static async Task<TextSpan> SpanForLinesAsync(Document document, int lineStart, int lineCount)
+        static TextSpan SpanForLines(SourceText text, int lineStart, int lineCount)
         {
-            var text = await document.GetTextAsync();
             var includedLines = text.Lines.Skip(lineStart).Take(lineCount).ToArray();
             var firstLine = includedLines.First();
             var lastLine = includedLines.Last();
@@ -121,50 +82,43 @@ namespace CSharpFormatter
             return linesUnion;
         }
 
-        static async Task<Document> ApplyChangesToDocumentAsync(Document document, IEnumerable<DiffRequest> requests)
+        static void ApplyChangesToDocument(string documentPath, IEnumerable<DiffRequest> requests)
         {
-            Console.WriteLine($"INFO: Applying changes to: {document.FilePath}");
-
-            // Make sure that the reqeusts are in order from the top of the file
-            // to the bottom.  This is important because text spans may shift during formatting, and we
-            // need to be able to adjust them.
-            requests = requests.OrderBy(r => r.lineStart);
-
-            // lineAdjustment is the offset in line numbers that have been caused by a reformat.
-            // Imagine a formatting that changes the number of lines in a document.  Now, the diff for
-            // this file will be asking for a format on the wrong spans!  By tracking line-count changes
-            // during formatting, we can correct the formatting requests to what they should be.
-            int lineAdjustment = 0;
-
-            foreach (var request in requests)
+            if (documentPath.EndsWith("vb")) { return; }
+            SyntaxNode after;
+            using (var file = File.Open(documentPath, FileMode.Open))
             {
+                var sourceText = SourceText.From(file);
+                var tree = Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParseSyntaxTree(sourceText);
 
-                var span = await SpanForLinesAsync(document, request.lineStart + lineAdjustment, request.lineCount);
-                var linesBeforeFormat = (await document.GetTextAsync()).Lines.Count();
-                document = await FormatAsync(document, span);
-                var linesAfterFormat = (await document.GetTextAsync()).Lines.Count();
-                lineAdjustment += linesAfterFormat - linesBeforeFormat;
+                // Make sure that the reqeusts are in order from the top of the file
+                // to the bottom.  This is important because text spans may shift during formatting, and we
+                // need to be able to adjust them.
+                requests = requests.OrderBy(r => r.lineStart);
+                var spans = requests.Select(req => SpanForLines(sourceText, req.lineStart, req.lineCount));
+                after = Format(tree.GetRoot(), spans, new AdhocWorkspace());
             }
 
-            return document;
+            File.WriteAllText(documentPath, after.ToFullString());
+        }
+
+        static IEnumerable<string> ConsoleLines()
+        {
+            var line = "";
+            while ((line = Console.ReadLine()) != null)
+            {
+                yield return line;
+            }
         }
 
         // THIS METHOD IS MY SHAME
-        internal static IEnumerable<DiffRequest> ParseDiffs()
+        internal static IEnumerable<DiffRequest> ParseDiffs(IEnumerable<string> diffLines)
         {
-            IEnumerable<string> ConsoleLines()
-            {
-                var line = "";
-                while ((line = Console.ReadLine()) != null)
-                {
-                    yield return line;
-                }
-            }
 
             var list = new List<DiffRequest>();
             string currentFile = null;
 
-            var lines = ConsoleLines().GetEnumerator();
+            var lines = diffLine.GetEnumerator();
             while (lines.MoveNext())
             {
                 var controlLine = lines.Current;
@@ -219,69 +173,12 @@ namespace CSharpFormatter
             return list;
         }
 
-        static async Task<int> Main(string[] args)
+        static int Main(string[] args)
         {
-            if (args.Length < 1)
-            {
-                Console.WriteLine("ERROR: you must provide a .sln file to the program");
-                PrintHelp();
-                return 1;
-            }
-
-            if (args.Length > 2)
-            {
-                Console.WriteLine("ERROR: Too many arguments");
-                PrintHelp();
-                return 1;
-            }
-
-            var allFiles = false;
-            if (args.Length == 2)
-            {
-                if (args[1] != "-a")
-                {
-                    Console.WriteLine($"ERROR: Unrecognized argument {args[1]}");
-                    PrintHelp();
-                    return 1;
-                }
-
-                allFiles = true;
-            }
-
-            var workspace = MSBuildWorkspace.Create();
-            Console.WriteLine($"INFO: Opening Solution: {args[0]} (This might take a while)");
-            var solution = await workspace.OpenSolutionAsync(args[0]);
-            Console.WriteLine($"INFO: Done Opening Solution");
-            foreach (var project in solution.Projects)
-            {
-                Console.WriteLine(project.Name);
-                foreach (var document in project.Documents)
-                {
-                    Console.WriteLine("    " + document.FilePath);
-                }
-            }
-
-            DocumentMap documentMap;
-            if (allFiles)
-            {
-                documentMap = await BuildAllFilesDocumentMap(solution);
-            }
-            else
-            {
-                var diffRequests = ParseDiffs();
-                documentMap = BuildDiffDocumentMap(workspace, solution, diffRequests);
-            }
+            DocumentMap documentMap = BuildDiffDocumentMap(ParseDiffs(ConsoleLines()));
             Console.WriteLine($"INFO: {documentMap.Count} files to process");
-
-            using (var progress = new ProgressBar(documentMap.Count(), "", ConsoleColor.White))
-            {
-                return await ApplyChanges(workspace, solution, documentMap, progress);
-            }
-        }
-
-        static void PrintHelp()
-        {
-            Console.WriteLine($"Usage: RoslynDiffFormatter <solution file> -a (optional, format all files in solution instead of reading diff)");
+            ApplyChanges(documentMap);
+            return 0;
         }
     }
 }
