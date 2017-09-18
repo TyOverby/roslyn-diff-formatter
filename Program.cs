@@ -106,10 +106,8 @@ namespace CSharpFormatter
                 Console.WriteLine("ERROR: Failed while saving files to disk.");
                 return 2;
             }
-            else
-            {
-                return 0;
-            }
+
+            return 0;
         }
 
         // Returns the TextSpan for a set of contiguous lines in a document.
