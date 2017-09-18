@@ -251,6 +251,15 @@ namespace CSharpFormatter
             var workspace = MSBuildWorkspace.Create();
             Console.WriteLine($"INFO: Opening Solution: {args[0]} (This might take a while)");
             var solution = await workspace.OpenSolutionAsync(args[0]);
+            Console.WriteLine($"INFO: Done Opening Solution");
+            foreach (var project in solution.Projects)
+            {
+                Console.WriteLine(project.Name);
+                foreach (var document in project.Documents)
+                {
+                    Console.WriteLine("    " + document.FilePath);
+                }
+            }
 
             DocumentMap documentMap;
             if (allFiles)
