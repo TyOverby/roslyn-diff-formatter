@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis;
 using static Microsoft.CodeAnalysis.Formatting.Formatter;
 using Microsoft.CodeAnalysis.Text;
 using System.Diagnostics;
+using System.Text;
 
 namespace CSharpFormatter
 {
@@ -86,6 +87,7 @@ namespace CSharpFormatter
         {
             if (documentPath.EndsWith("vb")) { return; }
             SyntaxNode after;
+            Encoding encoding;
             using (var file = File.Open(documentPath, FileMode.Open))
             {
                 var sourceText = SourceText.From(file);
@@ -96,10 +98,12 @@ namespace CSharpFormatter
                 // need to be able to adjust them.
                 requests = requests.OrderBy(r => r.lineStart);
                 var spans = requests.Select(req => SpanForLines(sourceText, req.lineStart, req.lineCount));
+
                 after = Format(tree.GetRoot(), spans, new AdhocWorkspace());
+                encoding = sourceText.Encoding;
             }
 
-            File.WriteAllText(documentPath, after.ToFullString());
+            File.WriteAllText(documentPath, after.ToFullString(), encoding);
         }
 
         static IEnumerable<string> ConsoleLines()
@@ -118,7 +122,7 @@ namespace CSharpFormatter
             var list = new List<DiffRequest>();
             string currentFile = null;
 
-            var lines = diffLine.GetEnumerator();
+            var lines = diffLines.GetEnumerator();
             while (lines.MoveNext())
             {
                 var controlLine = lines.Current;
